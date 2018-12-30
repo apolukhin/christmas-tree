@@ -2,6 +2,7 @@
 ASCII christmas tree with animations for 256 colored terminals:
 
 ![Sample](https://raw.githubusercontent.com/apolukhin/christmas-tree/master/docs/tree.png)
+
 (light are glowing in the terminal!)
 
 # How to build and run:
