@@ -25,20 +25,19 @@ enum class color_t : unsigned char {};
 constexpr color_t operator"" _c(unsigned long long int v) { return color_t(v); }
 
 std::ostream& operator<< (std::ostream& os, color_t val) {
-    return os << "\033[38;5;" << static_cast<int>(val) << 'm';
+  return os << "\033[38;5;" << static_cast<int>(val) << 'm';
 }
 
-
 struct green_state {
-  color_t operator()() const {
-    return *(dark >= std::size(greens) ? std::end(greens) - 1 : std::begin(greens) + dark);
+  color_t color() const {
+    return *(std::min(std::begin(kGreenColors) + dark, std::end(kGreenColors) - 1));
   }
 
-  void operator++() { ++dark; }
-  void reset() { dark = 0; }
+  void increase_darkness() { ++dark; }
+  void reset_darkness() { dark = 0; }
 
 private:
-  constexpr static color_t greens[] = { 22_c, 22_c, 28_c, 28_c, 34_c };
+  constexpr static color_t kGreenColors[] = { 22_c, 22_c, 28_c, 28_c, 34_c };
   int dark = 0;
 };
 
@@ -68,45 +67,67 @@ struct lamps {
   void change_mode() {
     ++mode;
   }
-private:
-  std::atomic<int> mode{0};
-  static constexpr int max_state = 3;
 
-  void new_color() {
-    std::sample(std::begin(pretty_colors), std::end(pretty_colors), &col, 1, rand);
+  void stop() {
+    stopped = true;
   }
 
+  bool was_stopped() {
+    return stopped;
+  }
+
+private:
+  void new_color() {
+    std::sample(std::begin(kPrettyColors), std::end(kPrettyColors), &col, 1, rand);
+  }
+
+  std::atomic<bool> stopped = false;
+  std::atomic<size_t> mode{0};
+  static constexpr size_t max_state = 3;
   std::mt19937 rand{std::random_device{}()};
   color_t col = 0_c;
 
   // https://misc.flogisoft.com/bash/tip_colors_and_formatting
-  static constexpr color_t pretty_colors[] = {
+  static constexpr color_t kPrettyColors[] = {
     1_c, 9_c, 11_c, 15_c, 45_c, 87_c, 118_c, 154_c, 155_c, 165_c, 193_c, 196_c, 198_c,208_c, 226_c, 15_c
   };
 };
 
-int main(int args, const char** argv) {
+std::string get_tree(int args, const char** argv) {
   std::string filename = "xtree.txt";
   if (args > 1) {
     filename = argv[1];
   }
 
+  std::string tree;
+  std::ifstream ifs{filename.c_str()};
+  std::getline(ifs, tree, '\0');
+  return tree;
+}
+
+int main(int args, const char** argv) {
   using namespace std::literals::chrono_literals;
 
-  std::string tree;
+  auto tree = get_tree(args, argv);
   lamps lamp;
 
   std::thread t([&lamp]() {
     char c;
     while (std::cin >> c) {
+      if (c == 'q') {
+        lamp.stop();
+        break;
+      }
       lamp.change_mode();
     }
   });
 
   for (;;) {
+    if (lamp.was_stopped()) {
+      break;
+    }
+
     std::system("clear");
-    std::ifstream ifs{filename.c_str()};
-    std::getline(ifs, tree, '\0');
 
     green_state g;
     auto it = tree.begin();
@@ -117,7 +138,7 @@ int main(int args, const char** argv) {
       switch (c) {
       case '*': [[fall_through]]
       case ' ':
-        std::cout << g() << c;
+        std::cout << g.color() << c;
         break;
 
       case 'o': [[fall_through]]
@@ -130,14 +151,16 @@ int main(int args, const char** argv) {
         break;
 
       case '\n': {
-          auto nl1 = std::find(it, end, '\n');
-          if (nl1 == end) nl1 = it;
-          const auto nl2 = std::find(nl1 + 1, end, '\n');
-          const auto new_width = std::count(nl1, nl2, '*') + std::count(nl1, nl2, 'o') + std::count(nl1, nl2, 'O');
+          const auto next_new_line = std::find(it + 1, end, '\n');
+          const auto new_width = std::count_if(
+              it,
+              next_new_line,
+              [](char s) { return s == '*' || s == 'o' || s == 'O'; }
+          );
           if (prev_width < new_width) {
-            ++g;
+            g.increase_darkness();
           } else {
-            g.reset();
+            g.reset_darkness();
           }
           prev_width = new_width;
         }
